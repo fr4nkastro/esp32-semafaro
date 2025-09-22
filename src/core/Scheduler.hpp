@@ -1,5 +1,5 @@
 #pragma once
-#include <Arduino.h>
+#include "platform/IPlatform.hpp"
 #include <functional>
 #include <vector>
 
