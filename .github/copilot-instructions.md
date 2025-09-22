@@ -7,7 +7,7 @@ This is an ESP32-S3 based automated parking control system with barrier, proximi
 
 ### Hybrid Design Pattern
 - **OOP for Hardware**: Each device (servo, sensors, buttons, traffic lights) is encapsulated in classes with exclusive pin ownership
-- **FSM for Control Logic**: Complex flows (access control, slot management) use explicit state machines
+- **FSM for Control Logic**: Complex flows (access control, slot management) use explicit state machines  
 - **Non-blocking Execution**: Everything runs cooperatively using `Scheduler::tick()` and `update(nowMs)` patterns - **never use `delay()`**
 
 ### Hardware Specifications
@@ -16,7 +16,6 @@ This is an ESP32-S3 based automated parking control system with barrier, proximi
 - **Sensors**: 7x inductive proximity sensors (6 parking slots + 1 safety)
 - **Traffic Lights**: 6x dual LED modules (red/green per slot)
 - **Buttons**: 4x (VIP, CARGA, REGULAR entry + EXIT)
-- **Relays**: 8-channel module for traffic light control
 
 ## Critical Development Patterns
 
@@ -26,27 +25,52 @@ All pin mappings are centralized in `core/Pins.hpp` using `constexpr` constants:
 namespace Pins {
   constexpr uint8_t SERVO_PWM = 5;
   constexpr uint8_t BTN_VIP_IN = 6;
+  constexpr uint8_t BARRIER_SAFE_IN = 10;
+  constexpr uint8_t S_VIP1 = 11;  // Slot sensors
+  
   struct TL { uint8_t RED; uint8_t GREEN; };
   constexpr TL TL_VIP1{17, 18};
+  constexpr TL TL_CARG1{21, 35};  // Note ESP32-S3 PWM pins
 }
 ```
 
 ### Device Class Pattern
 Every hardware device follows this structure:
-- `begin(pins...)` - initialize hardware
+- `begin(pins...)` - initialize hardware with pin ownership
 - `update(uint32_t nowMs, ...)` - non-blocking state updates
 - Public methods for commands (open/close, setOccupied/setFree)
 - Private state management with debouncing for inputs
+- State enums with `getState()` methods for debugging
+
+### Critical ESP32-S3 Setup Pattern
+**Always allocate servo timers in setup() before any servo initialization:**
+```cpp
+// Required in main.cpp setup() - ESP32-S3 specific
+ESP32PWM::allocateTimer(0);
+ESP32PWM::allocateTimer(1);
+ESP32PWM::allocateTimer(2);
+ESP32PWM::allocateTimer(3);
+```
 
 ### Scheduler Usage
-Main loop uses cooperative multitasking:
+Main loop uses cooperative multitasking with specific update pattern:
 ```cpp
-Scheduler::every(50, [](){  // 20Hz update rate
+// Setup multiple scheduled tasks in setup()
+Scheduler::every(Cfg::kMainUpdateMs, []() {  // 50ms = 20Hz
   uint32_t now = millis();
-  slots.update(now);
-  controller.update(now);
-  barrier.update(now, safe.read(now));
+  slotManager.update(now);
+  accessController.update(now);
+  barrier.update(now, safeSensor.isDetected(now));
 });
+
+// Status monitoring task
+Scheduler::every(30000, []() { printSystemStatus(); });
+
+// In loop() - just call tick
+void loop() {
+  Scheduler::tick();
+  delay(1);  // Prevent watchdog timeout
+}
 ```
 
 ## Project Structure Conventions
@@ -80,24 +104,30 @@ src/
 - Entry blocked when all 6 slots occupied
 
 ### Priority System (Phase 2)
-- **VIP Priority**: Can use CARGA or REGULAR slots when VIP full
+- **VIP Priority**: Can use CARGA or REGULAR slots when VIP full (configurable fallback policy)
 - **CARGA/REGULAR Restriction**: Cannot use VIP slots, blocked when their type is full
-- Implementation in `SlotManager::allocate(VehicleClass vc)`
+- **Implementation**: `SlotManager::allocate(VehicleClass vc)` with `findVipFallback()` method
+- **Policy Configuration**: `Cfg::kVipFallback` enum in `core/Config.hpp`
 
 ### State Machine Flow
 AccessController FSM: `IDLE → CHECK_CAPACITY → OPENING → WAIT_PASS → CLOSING → IDLE`
-- Includes timeout handling and safety sensor integration
-- Fault state for error recovery
+- **Fault Recovery**: `FAULT` state with `reset()` method for manual recovery
+- **Safety Integration**: `safeSensorActive` parameter prevents closing
+- **Debugging Support**: `getStateName()`, `getStateTime()`, state logging
+- **Timeout Handling**: Separate timeouts for open/close operations in `core/Config.hpp`
 
 ## Development Workflow
 
 ### Build & Deploy
 ```bash
-# Compile and upload
+# Compile and upload (PowerShell on Windows)
 pio run -e 4d_systems_esp32s3_gen4_r8n16 -t upload
 
-# Monitor serial output
+# Monitor serial output (115200 baud)
 pio device monitor -e 4d_systems_esp32s3_gen4_r8n16
+
+# Clean build if needed
+pio run -e 4d_systems_esp32s3_gen4_r8n16 -t clean
 ```
 
 ### Testing Strategy
@@ -109,13 +139,12 @@ pio device monitor -e 4d_systems_esp32s3_gen4_r8n16
 
 ### PWM Pin Compatibility
 ESP32-S3 PWM-capable pins: 1-21, 35-45, 47-48 (avoid 0=button, 48=LED)
-Always allocate timers in setup():
-```cpp
-ESP32PWM::allocateTimer(0);
-ESP32PWM::allocateTimer(1);
-ESP32PWM::allocateTimer(2);
-ESP32PWM::allocateTimer(3);
-```
+**Critical**: Pins 35+ used for traffic lights in current design
+
+### Power Management
+- **Servo**: Requires external 5V supply (1000mA peak)
+- **Proximity Sensors**: 10-30V PNP sensors need 3.3V level conversion
+- **LEDs**: Use 220Ω resistors for current limiting (~10mA)
 
 ### Power Management
 - Servo requires external 5V supply (not ESP32 3.3V)
@@ -129,8 +158,16 @@ ESP32PWM::allocateTimer(3);
 - `platformio.ini` - Board configuration and dependencies
 
 ## Common Pitfalls to Avoid
-1. **Never block execution** - use update() patterns, not delay()
+1. **Never block execution** - use update() patterns, not delay() (except 1ms watchdog delay)
 2. **Single pin ownership** - only device classes should write to their pins
-3. **Debounce all inputs** - buttons and sensors need filtering
-4. **Timeout all FSM states** - include fault recovery paths
-5. **Test allocation logic** - slot assignment has complex business rules
+3. **Debounce all inputs** - buttons and sensors need 30ms filtering
+4. **Timeout all FSM states** - include fault recovery with manual reset
+5. **Test allocation logic** - VIP fallback and capacity rules are complex
+6. **Servo timer allocation** - must call `ESP32PWM::allocateTimer()` before servo init
+7. **Safety sensor integration** - always pass to `barrier.update(now, safeSensorActive)`
+
+## Debugging Features
+- **Status printing**: `printSystemStatus()` every 30 seconds with full state
+- **State logging**: Each FSM transition logs with `getStateName()`
+- **Log levels**: Use `LOG_INFO/WARN/ERROR/DEBUG` with `LOG_LEVEL` build flag
+- **Heap monitoring**: System prints free heap every 5 seconds

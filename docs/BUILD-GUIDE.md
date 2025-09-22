@@ -19,9 +19,6 @@ pio run -e 4d_systems_esp32s3_gen4_r8n16 -t upload
 # Monitor serial output (115200 baud)
 pio device monitor -e 4d_systems_esp32s3_gen4_r8n16
 
-# Run unit tests
-pio test -e native
-
 # Clean build
 pio run -e 4d_systems_esp32s3_gen4_r8n16 -t clean
 ```
@@ -108,19 +105,7 @@ See `src/core/Config.hpp`:
 - **Servo Movement**: 20ms steps, 2° per step
 - **Timeouts**: 5s open, 3s close, 3s pass
 
-## Testing & Validation
-
-### Unit Tests
-```bash
-# Run logic tests without hardware
-pio test -e native
-
-# Tests cover:
-# - Slot allocation algorithms
-# - VIP fallback priority  
-# - Capacity management
-# - State transitions
-```
+## Hardware Validation
 
 ### Hardware Testing Checklist
 
@@ -241,7 +226,8 @@ constexpr uint8_t kServoStepDeg = 3;      // Larger steps
 ### Getting Help
 1. Check serial logs for error messages
 2. Verify hardware connections against pin mapping
-3. Test individual components before integration
+2. Verify ESP32-S3 board selection in platformio.ini
+3. Check individual components before integration
 4. Review implementation log for known issues
 
 **System Status: PRODUCTION READY** ✅

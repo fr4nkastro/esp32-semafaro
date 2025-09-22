@@ -130,7 +130,7 @@ namespace Pins {
 5. **Constantes/tiempos** en `core/Config.hpp` (fácil de tunear).
 6. **Logs** con macros `LOG_INFO(...)`, `LOG_WARN(...)`, `LOG_ERR(...)` controladas por `LOG_LEVEL_*`.
 7. **FSM con timeouts** → en caso de bloqueo, ir a `FAULT` con código de error.
-8. **Pruebas**: lógica de asignación en `SlotManager` probada con PlatformIO Unity.
+8. **Documentación**: patrones híbridos documentados en `docs/lineamientos.md`.
 
 ---
 
@@ -450,7 +450,7 @@ namespace Cfg {
   * **Estándar de nombres** (UpperCamel para clases, `kConst`, `snake_case` para pines)
   * **Eventos**: lista y tabla causa→efecto (matriz C\&E)
   * **Política FASE 2** bien definida (algoritmo de asignación)
-  * **Pruebas**: qué cubrir en `test/` (asignación, liberación, estados borde)
+  * **Documentación**: qué incluir en código (comentarios de business rules)
 
 * **`docs/IO-Map.md`**:
 
@@ -467,7 +467,7 @@ namespace Cfg {
   * rechazos con clases llenas;
   * liberar y re-asignar.
 
-(Usa `pio test` con Unity; la lógica no depende de Arduino si evitas `digitalRead` aquí.)
+(Validación directa en hardware ESP32-S3 para testing completo.)
 
 ---
 
@@ -484,7 +484,7 @@ namespace Cfg {
 
 * 100% estructurado: rápido, pero **escala peor**; mezclar IO disperso en FSMs produce deuda técnica.
 * 100% POO: elegante, pero **FSMs escondidas** dentro de objetos grandes se vuelven opacas para el comisionamiento.
-* **Híbrido**: dispositivos **POO** (interfaces claras) + **FSMs explícitas** (legibles, testeables) = **robustez + mantenibilidad**.
+* **Híbrido**: dispositivos **POO** (interfaces claras) + **FSMs explícitas** (legibles, mantenibles) = **robustez + mantenibilidad**.
 
 ---
 
